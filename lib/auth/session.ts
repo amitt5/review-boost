@@ -36,7 +36,7 @@ export async function verifyToken(request?: NextRequest | Request) {
   } else if (typeof window === 'undefined') {
     // For server components
     const { cookies } = await import('next/headers');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     token = cookieStore.get(SESSION_TOKEN)?.value;
   }
 
