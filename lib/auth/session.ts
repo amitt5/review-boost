@@ -1,59 +1,72 @@
-import { compare, hash } from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
-import { cookies } from 'next/headers';
-import { NewUser } from '@/lib/db/schema';
+import { NextRequest, NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 
-const key = new TextEncoder().encode(process.env.AUTH_SECRET);
-const SALT_ROUNDS = 10;
+const SESSION_TOKEN = 'session-token';
+const key = new TextEncoder().encode(process.env.AUTH_SECRET || 'default-secret-key');
 
 export async function hashPassword(password: string) {
-  return hash(password, SALT_ROUNDS);
+  return bcrypt.hash(password, 10);
 }
 
-export async function comparePasswords(
-  plainTextPassword: string,
-  hashedPassword: string
-) {
-  return compare(plainTextPassword, hashedPassword);
+export async function comparePasswords(plainText: string, hash: string) {
+  return bcrypt.compare(plainText, hash);
 }
 
-type SessionData = {
-  user: { id: number };
-  expires: string;
-};
-
-export async function signToken(payload: SessionData) {
-  return await new SignJWT(payload)
+export async function signToken(userId: number) {
+  return new SignJWT({ userId })
     .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('1 day from now')
+    .setExpirationTime('1d')
     .sign(key);
 }
 
-export async function verifyToken(input: string) {
-  const { payload } = await jwtVerify(input, key, {
-    algorithms: ['HS256'],
-  });
-  return payload as SessionData;
+export async function verifyToken(request?: NextRequest | Request) {
+  let token: string | undefined;
+  
+  if (request) {
+    if (request instanceof NextRequest) {
+      // For middleware
+      token = request.cookies.get(SESSION_TOKEN)?.value;
+    } else {
+      // For API routes
+      token = request.headers.get('cookie')?.split(';')
+        .find(c => c.trim().startsWith(`${SESSION_TOKEN}=`))
+        ?.split('=')[1];
+    }
+  } else if (typeof window === 'undefined') {
+    // For server components
+    const { cookies } = await import('next/headers');
+    const cookieStore = cookies();
+    token = cookieStore.get(SESSION_TOKEN)?.value;
+  }
+
+  if (!token) return null;
+
+  try {
+    const verified = await jwtVerify(token, key);
+    return verified.payload as { userId: number };
+  } catch (err) {
+    return null;
+  }
 }
 
-export async function getSession() {
-  const session = (await cookies()).get('session')?.value;
-  if (!session) return null;
-  return await verifyToken(session);
-}
-
-export async function setSession(user: NewUser) {
-  const expiresInOneDay = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const session: SessionData = {
-    user: { id: user.id! },
-    expires: expiresInOneDay.toISOString(),
-  };
-  const encryptedSession = await signToken(session);
-  (await cookies()).set('session', encryptedSession, {
-    expires: expiresInOneDay,
+export function createSessionCookie(token: string) {
+  return {
+    name: SESSION_TOKEN,
+    value: token,
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-  });
+    expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 1 day
+    path: '/',
+  } as const;
+}
+
+export async function clearSession(response: NextResponse) {
+  response.cookies.delete(SESSION_TOKEN);
+  return response;
+}
+
+export function getSessionToken(req: NextRequest) {
+  return req.cookies.get(SESSION_TOKEN)?.value;
 }

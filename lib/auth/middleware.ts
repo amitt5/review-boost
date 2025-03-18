@@ -1,75 +1,32 @@
-import { z } from 'zod';
-import { TeamDataWithMembers, User } from '@/lib/db/schema';
-import { getTeamForUser, getUser } from '@/lib/db/queries';
-import { redirect } from 'next/navigation';
+import { NextResponse } from 'next/server';
+import { verifyToken } from '@/lib/auth/session';
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
-export type ActionState = {
-  error?: string;
-  success?: string;
-  [key: string]: any; // This allows for additional properties
+export type AuthenticatedAction = {
+  userId: number;
 };
 
-type ValidatedActionFunction<S extends z.ZodType<any, any>, T> = (
-  data: z.infer<S>,
-  formData: FormData
-) => Promise<T>;
+export async function withAuth<T>(
+  action: (auth: AuthenticatedAction) => Promise<T>
+): Promise<T> {
+  const payload = await verifyToken();
+  if (!payload) {
+    throw new Error('Unauthorized');
+  }
 
-export function validatedAction<S extends z.ZodType<any, any>, T>(
-  schema: S,
-  action: ValidatedActionFunction<S, T>
-) {
-  return async (prevState: ActionState, formData: FormData): Promise<T> => {
-    const result = schema.safeParse(Object.fromEntries(formData));
-    if (!result.success) {
-      return { error: result.error.errors[0].message } as T;
-    }
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, payload.userId),
+  });
 
-    return action(result.data, formData);
-  };
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  return action({ userId: user.id });
 }
 
-type ValidatedActionWithUserFunction<S extends z.ZodType<any, any>, T> = (
-  data: z.infer<S>,
-  formData: FormData,
-  user: User
-) => Promise<T>;
-
-export function validatedActionWithUser<S extends z.ZodType<any, any>, T>(
-  schema: S,
-  action: ValidatedActionWithUserFunction<S, T>
-) {
-  return async (prevState: ActionState, formData: FormData): Promise<T> => {
-    const user = await getUser();
-    if (!user) {
-      throw new Error('User is not authenticated');
-    }
-
-    const result = schema.safeParse(Object.fromEntries(formData));
-    if (!result.success) {
-      return { error: result.error.errors[0].message } as T;
-    }
-
-    return action(result.data, formData, user);
-  };
-}
-
-type ActionWithTeamFunction<T> = (
-  formData: FormData,
-  team: TeamDataWithMembers
-) => Promise<T>;
-
-export function withTeam<T>(action: ActionWithTeamFunction<T>) {
-  return async (formData: FormData): Promise<T> => {
-    const user = await getUser();
-    if (!user) {
-      redirect('/sign-in');
-    }
-
-    const team = await getTeamForUser(user.id);
-    if (!team) {
-      throw new Error('Team not found');
-    }
-
-    return action(formData, team);
-  };
+export function unauthorized() {
+  return new NextResponse(null, { status: 401 });
 }

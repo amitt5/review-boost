@@ -1,32 +1,15 @@
-'use client';
+import { ReactNode } from 'react';
+import { getUser } from '@/lib/db/queries';
+import { ClientUserProvider } from './client';
 
-import { createContext, useContext, ReactNode } from 'react';
-import { User } from '@/lib/db/schema';
-
-type UserContextType = {
-  userPromise: Promise<User | null>;
-};
-
-const UserContext = createContext<UserContextType | null>(null);
-
-export function useUser(): UserContextType {
-  let context = useContext(UserContext);
-  if (context === null) {
-    throw new Error('useUser must be used within a UserProvider');
-  }
-  return context;
-}
-
-export function UserProvider({
-  children,
-  userPromise
-}: {
+interface UserProviderProps {
   children: ReactNode;
-  userPromise: Promise<User | null>;
-}) {
-  return (
-    <UserContext.Provider value={{ userPromise }}>
-      {children}
-    </UserContext.Provider>
-  );
 }
+
+export async function UserProvider({ children }: UserProviderProps) {
+  const user = await getUser();
+
+  return <ClientUserProvider user={user}>{children}</ClientUserProvider>;
+}
+
+export { useUser } from './client';
