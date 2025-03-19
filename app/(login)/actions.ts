@@ -117,7 +117,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
 
   if (existingUser.length > 0) {
     return {
-      error: 'Failed to create user. Please try again.',
+      error: 'Email already exists. Failed to create user. Please try again.',
       email,
       password,
     };
@@ -128,7 +128,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
   const newUser: NewUser = {
     email,
     passwordHash,
-    role: 'owner', // Default role, will be overridden if there's an invitation
+    role: 'user', // Default role, will be overridden if there's an invitation
   };
 
   const [createdUser] = await db.insert(users).values(newUser).returning();
@@ -195,7 +195,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     }
 
     teamId = createdTeam.id;
-    userRole = 'owner';
+    userRole = 'user';
 
     await logActivity(teamId, createdUser.id, ActivityType.CREATE_TEAM);
   }
